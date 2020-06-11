@@ -1,6 +1,8 @@
 <template>
   <div v-if="user.token" id="app">
+
     <router-view/>
+   
   </div>
   <div v-else id="app">
     <Login></Login>
@@ -15,6 +17,9 @@ export default {
   components: {
     Login
   },
+//  mounted(){
+//     this.$db.testa();
+//   },
   data() {
     return {
       user: this.$user

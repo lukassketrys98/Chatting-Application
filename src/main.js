@@ -10,8 +10,9 @@ import axios from 'axios';
 import db from './services/db'
 
 
+
 Vue.use(VueMaterial)
-Vue.prototype.$http = axios
+Vue.prototype.$http = axios;
 Vue.prototype.$db = db;
 Vue.prototype.$user = {};
 

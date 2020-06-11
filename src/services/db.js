@@ -1,42 +1,56 @@
-var users;
-var currentUser;
-var conversations;
+const axios = require('axios');
+require('firebase/auth');
+require('firebase/database');
+var firebase = require('firebase/app');
 
-if (!localStorage['users']) {
-    users = []
-} else {
-    users = JSON.parse(localStorage['users'])
+let config = {
+    apiKey: 'AIzaSyAVIfj3o7635plv8Toc2TxLAAejuF5VzFk',
+    authDomain: 'my-database-7b462.firebaseapp.com',
+    databaseURL: 'https://my-database-7b462.firebaseio.com',
+    projectId: 'my-database-7b462',
+}
+const app = firebase.initializeApp(config);
+const database = firebase.database();
+
+
+var users = [];
+var conversations = [];
+
+//retrieves users and conversations data from database
+
+function getUsersData(arrayofData, arrayName) {
+
+    const url = 'https://my-database-7b462.firebaseio.com/' + arrayName;
+    axios.get(url).then(response => {
+        for (let key in response.data) {
+            response.data[key].id = key;
+            var user = response.data[key]
+            arrayofData.push(user);
+        }
+        console.log(arrayofData)
+
+    });
 }
 
+getUsersData(users, 'message-app-users.json');
+getUsersData(conversations, 'conversations.json');
 
-if (!localStorage['Conversations']) conversations = [];
-else {
-    conversations = JSON.parse(localStorage['Conversations']);
-    console.log(conversations)
-}
 
+//registration 
 function addUser(user, cb) {
-    //level1 
-    if (!user) throw new Error("User not specified");
 
-    if (!user.email || !user.name || !user.surname || !user.password) {
+    if (!user) throw new Error("User not specified");
+    if (!user.email || !user.img || !user.name || !user.surname || !user.password) {
         throw new Error('Some register details are missing')
     }
-
-    //level1
     for (var id in users) {
-
-        //level2
-        // console.log(users[id])
         if (users[id].email == user.email) {
-            //level3
             if (cb) {
                 cb(new Error('User already exists'));
                 return;
             }
         }
     }
-    //level1
     var newUser = {
         email: user.email,
         password: user.password,
@@ -44,45 +58,41 @@ function addUser(user, cb) {
         surname: user.surname,
         img: user.img
     };
-    //level1
 
-    newUser.id = String(Date.now());
-    users.push(newUser)
-    localStorage.setItem('users', JSON.stringify(users))
-    if (cb) cb(null, newUser);
+    const url = 'https://my-database-7b462.firebaseio.com/message-app-users.json'
+    axios.post(url, newUser)
+        .then(
+            response => {
+                newUser.id = response.data.name;
+                users.push(newUser)
+                cb(null, newUser)
+            })
+        .catch(error => {
+            if (error.response) {
+                if (cb) cb(new Error('User has not been registered'));
+            }
+        });
 }
 
+//login and authentication
 function login(email, password, cb) {
-    // console.log(email,password,cb)
-
-    //1level
-
     if (!email) throw new Error('Email not specified');
     if (!password) throw new Error('Password not specified');
-
-    // 1level
     for (var id in users) {
-        // 2level
         if (users[id].email == email) {
-
-            // 3level
             if (users[id].password == password) {
-
-                // 4level
                 var user = {
-                    id: id,
+                    id: users[id].id,
                     email: users[id].email,
                     name: users[id].name,
                     surname: users[id].surname,
-                    // img: users[id].img
+                    img: users[id].img,
+                    password: users[id].password
                 }
-                // 4level
-                if (cb) cb(null, id, user);
-                return;
+                if (cb) cb(null, user.id, user);
+                return user;
             }
-            //3 level
             else {
-                // 4 level
                 if (cb) {
                     cb(new Error('Wrong password'));
                     return;
@@ -90,98 +100,347 @@ function login(email, password, cb) {
             }
         }
     }
-    // 1level
     if (cb) cb(new Error('Invalid credentials'));
 }
 
-// console.log(user.name)
+//updates profile
+function updateUser(token, user, cb) {
+    for (let i = 0; i < users.length; i++) {
+        if (token == users[i].id) {
+            var editUserObject = users[i];
+            editUserObject.id = user.id;
+            editUserObject.email = user.email;
+            editUserObject.name = user.name;
+            editUserObject.surname = user.surname;
+            editUserObject.img = user.img;
 
+            users.splice(i, 1, editUserObject)
+            let userRef = database.ref('message-app-users/' + user.id);
+            userRef.update(editUserObject);
 
-// console.log(user)
-function listUsers(token, query, cb) {
-    var userId = users[token] ? token : null;
-    if (!userId) {
-        if (cb) cb(new Error('Invalid token'));
-        return;
-    }
-    var results = [];
-    for (var id in users) {
-        var matches = !query || !Object.keys(query).length;
-        if (!matches) {
-            for (var cond in query) {
-                if (String(users[id][cond]).indexOf(String(query[cond])) != -1) {
-                    matches = true;
-                    break;
-                }
-            }
         }
-        if (matches) results.push({
-            id: users[id].id,
-            email: users[id].email,
-            name: users[id].name,
-            surname: users[id].surname,
-            img: users[id].img
-        });
     }
-    if (cb) cb(null, results);
+    if (cb) cb(null, editUserObject)
+    updateUserForMessages(editUserObject, editUserObject.name, editUserObject.surname, editUserObject.img)
+
+}
+
+//list all users instead of logged user, for the selection of members when adding new conversation
+
+function listUsers(currentUser, cb) {
+    var availableMembers = [];
+    users.forEach(user => {
+        if (currentUser.email != user.email)
+            availableMembers.push(user);
+    });
+    if (cb) cb(availableMembers)
+    return availableMembers;
+}
+
+//lists all users for members table
+
+function listAllUsers(cb) {
+    var allMembers = [];
+    users.forEach(user => {
+        allMembers.push(user);
+    });
+    if (cb) cb(allMembers)
+    return allMembers;
 }
 
 
-function listConversations(cb) {
-    if (!conversations) cb(new Error("There is no conversations"))
+//AUTOMATICALLY UPDATES USERS PHOTO AND AUTHORS NAME IF USER CHANGES PROFILE PHOTO OR NAME
+
+function updateUserForMessages(editUserObject, newUserName, newUserSurname, newUserPhoto) {
+    console.log(newUserName)
+    console.log(newUserSurname)
+    conversations.forEach(conversation => {
+        for (let i = 0; i < conversation.messages.length; i++) {
+            if (conversation.messages[i].author.includes(newUserName)) {
+
+                let userRef = database.ref('conversations/' + conversation.id + '/messages/' + i + '/img');
+                userRef.set(newUserPhoto);
+                let userRef2 = database.ref('conversations/' + conversation.id + '/messages/' + i + '/author');
+                var authorString = `${newUserName} ${newUserSurname}`;
+                userRef2.set(authorString);
+                conversation.messages[i].img = newUserPhoto;
+                conversation.messages[i].author = `${newUserName} ${newUserSurname}`
+
+            }
+        }
+    })
+
+    console.log(conversations)
+
+}
+
+
+///////////////////////////////////////////////////////////////
+//CONVERSATION FUNCTIONS
+
+//lists alll the conversations
+
+function listConversations(currentUser, cb) {
+    if (!conversations) cb(new Error("There are no conversations"))
 
     var convos = [];
     conversations.forEach(convo => {
-      for (var i = 0; i < convo.members.length; i++) {
-        if ((convo.members[i] == currentUser.name)) 
-        convos.push(convo); 
-      }
+
+
+        for (var i = 0; i < convo.members.length; i++) {
+
+            if ((convo.members[i] == currentUser.name))
+                convos.push(convo);
+
+        }
     })
     cb(null, convos)
-  }
-    // conversations.forEach(convo => {
-    //   for (var i = 0; i < convo.members.length; i++) {
-    //     if ((convo.members[i] == currentUser.name)) 
-    //     convos.push(convo); 
-    //   }
-    // })
-    // cb(null, convos)
-
-
-function checkToken(token) {
-    currentToken = token;
-    console.log(currentToken)
 }
 
+//add new conversation
 
-function setCurrentUser(user) {
-    currentUser = {
-        token: user.token,
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        surname: user.surname,
-        img: user.img,
+function addConversation(currentUser, currentUserToken, conv, cb) {
+
+    if (conv.members.length == 0 || conv.members.length == null) {
+        cb(new Error("Conversation must be shown for at least 1 member"))
+        return;
+    }
+    if (!conv.name || !conv.img) {
+        throw new Error('Some conversation details are missing')
+    }
+    var newConversation = {
+        token: currentUserToken,
+        name: conv.name,
+        img: conv.img,
+        members: conv.members,
+        messages: [
+            {
+                author: `${currentUser.name} ${currentUser.surname}`,
+                ts: getDate(),
+                content: `Welcome message from ${currentUser.name}`,
+                img: currentUser.img,
+                id: Date.now()
+            }
+        ]
     };
 
-    localStorage.setItem("currentUser", JSON.stringify(currentUser));
+    if (!isConversationNew(newConversation)) {
+        var err = new Error('Conversation already exists. Try different name')
+        alert(err)
+        throw err;
+    }
 
+    newConversation.members.push(currentUser.name);
+    const url = 'https://my-database-7b462.firebaseio.com/conversations.json'
+    axios.post(url, newConversation)
+        .then(
+            response => {
+                newConversation.id = response.data.name;
+                conversations.push(newConversation)
+                cb(null, newConversation)
+            })
+        .catch(error => {
+            if (error.response) {
+                if (cb) cb(new Error('Request has been rejected'));
+            }
+        });
 }
 
+
+//checks whether the conversation exists already or is new
+function isConversationNew(newConversation) {
+
+    for (let i = 0; i < conversations.length; i++) {
+        if (newConversation.name == conversations[i].name) {
+            return false;
+        }
+    }
+    return true;
+}
+
+//formats date for the message
+function getDate() {
+    var MyDate = new Date();
+    MyDate.setDate(MyDate.getDate());
+
+    var date = ('0' + MyDate.getDate()).slice(-2) + '/'
+        + ('0' + (MyDate.getMonth() + 1)).slice(-2) + '/'
+        + MyDate.getFullYear() + ' ' + MyDate.getHours() + ':' + ('0' + MyDate.getMinutes()).slice(-2);
+
+    return date;
+}
+
+
+//edit conversation data (name and photo)
+function updateConversation(conversation, cb) {
+    for (let i = 0; i < conversations.length; i++) {
+        if (conversation.id == conversations[i].id) {
+    
+            var editConversationObject = conversations[i];
+            editConversationObject.id = conversation.id;
+            editConversationObject.img = conversation.img;
+            editConversationObject.members = conversations[i].members;
+            editConversationObject.messages = conversations[i].messages;
+            editConversationObject.name = conversation.name;
+
+            conversations.splice(i, 1, editConversationObject)
+
+
+            let userRef = database.ref('conversations/' + conversation.id);
+            userRef.update(editConversationObject);
+        }
+    }
+    if (cb) cb(null, editConversationObject)
+}
+
+//leave the conversation
+function leaveConversation(user, id, cb) {
+    conversations.forEach((conversation, index) => {
+        for (let i = 0; i < conversation.members.length; i++) {
+            if (id == conversation.id && user.name == conversation.members[i]) {
+
+                conversation.members.splice(i, 1);
+                let userRef = database.ref('conversations/' + conversation.id);
+                userRef.update(conversation);
+
+                //DELETE CONVERSATION IF ALL MEMBERS LEFT
+                if (conversation.members.length == 0 || conversation.members.length == null) {
+                    conversations.splice(index, 1)
+                    let userRefa = database.ref('conversations/' + conversation.id);
+                    userRefa.remove()
+                }
+                if (cb) cb(null, conversation);
+                return;
+            }
+        }
+    })
+}
+
+//list messages for display
+function listMessages(id, cb) {
+
+    for (let i = 0; i < conversations.length; i++) {
+        if (id == conversations[i].id) {
+            var conversation = {
+                id: conversations[i].id,
+                img: conversations[i].img,
+                members: conversations[i].members,
+                messages: conversations[i].messages,
+                name: conversations[i].name,
+            };
+
+            cb(conversation)
+        }
+    }
+}
+
+//checks if the users are members of convo and sends their data
+function assignUsers(members, cb) {
+    var membersArray = [];
+    for (var i = 0; i < users.length; i++) {
+        if (members.indexOf(users[i].name) != -1) {
+            membersArray.push(users[i]);
+        }
+    };
+    if (cb) cb(membersArray)
+}
+
+//add new message
+function addMessage(messageText, conv, user) {
+    if (!messageText) {
+        var err = new Error("Type something");
+        alert(err)
+        throw err
+    }
+    var newMsg = {
+        id: Date.now(),
+        ts: getDate(),
+        author: `${user.name} ${user.surname}`,
+        content: messageText,
+        img: user.img
+    }
+    
+    conv.messages.push(newMsg)
+    updateConversation(conv)
+}
+
+//remove message
+function deleteMessage(user,messageId,name,cb) {
+   
+    var msgArray= []
+    conversations.forEach(conversation => {
+  
+        for (let i = 0; i < conversation.messages.length; i++) {
+            if (conversation.name == name && messageId == conversation.messages[i].id) {
+                if(conversation.messages[i].author.includes(user.name)){
+                   
+                    conversation.messages.splice(i, 1);
+                    msgArray = conversation.messages;
+                    let userRef = database.ref('conversations/' + conversation.id + '/messages/');
+                    userRef.set(msgArray)
+                    if (cb) cb(null);
+                    return;
+
+                }else{
+                    var err = new Error("You can't delete other Users messages");
+                    alert(err)
+                    throw err;
+                }
+            }
+        }
+    })
+}
+
+//add new members to conversation
+function joinConversation(id,newMembersArray,currentMembers,cb){
+
+    var listOfSelectedMembers = [];
+    
+    newMembersArray.forEach(newMember =>{
+        listOfSelectedMembers.push(newMember.name)
+    })
+   
+     conversations.forEach(conversation =>{
+        if (id == conversation.id) {
+            for(let i = 0; i < listOfSelectedMembers.length;i++){
+                //if the name does not exist between current members
+                if(currentMembers.indexOf(listOfSelectedMembers[i]) == -1){
+                   currentMembers.push(listOfSelectedMembers[i])
+                   let userRef = database.ref('conversations/' + conversation.id + '/members/');
+                   userRef.set(currentMembers)
+                   if(cb) cb(currentMembers)
+                }else{
+                    var err =new Error("This user/users are already in conversation");
+                    alert(err)
+                    throw err;
+                }
+            }
+        }
+    })
+}
 
 export default {
-    addUser,
-    listUsers,
-    // updateUser,
-    login,
-    // addConversation,
-    // updateConversation,
-    listConversations,
-    // joinConversation,
-    // leaveConversation,
-    // addMessage,
-    // removeMessage,
-    // listMessages,
-    checkToken,
-    setCurrentUser
-}
+        getUsersData,
+        addUser,
+        login,
+        listUsers,
+        listAllUsers,
+        updateUser,
+        assignUsers,
+        updateUserForMessages,
+
+        listConversations,
+        addConversation,
+        updateConversation,
+        leaveConversation,
+        joinConversation,
+        isConversationNew,
+
+        listMessages,
+        addMessage,
+        deleteMessage,
+        getDate,
+    
+
+    }
+
